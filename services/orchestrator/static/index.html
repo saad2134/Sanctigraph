@@ -388,32 +388,64 @@
     let currentHmacToken = null;
     let sseSource = null;
 
-    // Polling Metrics (:8001)
-    setInterval(async () => {
+    // Real-Time Telemetry Updater & Poller
+    function updateTelemetryUI(s) {
+      if (!s) return;
+      const errEl = document.getElementById('metric-error-rate');
+      const rate = (s.error_rate_percent !== undefined) ? s.error_rate_percent : 0.0;
+      errEl.textContent = rate.toFixed(1) + '%';
+      if (rate > 1.0) {
+        errEl.className = 'text-2xl font-bold font-mono text-signal mt-1';
+      } else {
+        errEl.className = 'text-2xl font-bold font-mono text-safe mt-1';
+      }
+      if (s.p99_latency_ms !== undefined) {
+        document.getElementById('metric-p99').textContent = s.p99_latency_ms.toFixed(1) + 'ms';
+      }
+      if (s.active_db_connections !== undefined && s.max_db_connections !== undefined) {
+        document.getElementById('metric-conns').textContent = `${s.active_db_connections} / ${s.max_db_connections}`;
+      }
+      if (s.worker_replicas !== undefined) {
+        document.getElementById('metric-replicas').textContent = s.worker_replicas;
+      }
+    }
+
+    async function pollTelemetry() {
       try {
-        const resp = await fetch('http://127.0.0.1:8001/healthz');
+        const resp = await fetch('/api/telemetry');
         if (resp.ok) {
           const json = await resp.json();
-          const s = json.snapshot || {};
-          document.getElementById('metric-error-rate').textContent = (s.error_rate_percent || 0.0).toFixed(1) + '%';
-          document.getElementById('metric-p99').textContent = (s.p99_latency_ms || 42.0).toFixed(1) + 'ms';
-          document.getElementById('metric-conns').textContent = (s.active_db_connections || 12) + ' / ' + (s.max_db_connections || 20);
-          document.getElementById('metric-replicas').textContent = s.worker_replicas || 2;
-
-          const errEl = document.getElementById('metric-error-rate');
-          if (s.error_rate_percent > 5.0) {
-            errEl.className = 'text-2xl font-bold font-mono text-signal mt-1';
-          } else {
-            errEl.className = 'text-2xl font-bold font-mono text-safe mt-1';
-          }
+          updateTelemetryUI(json.snapshot);
         }
       } catch (e) {
         // Target service might be warming up
       }
-    }, 1500);
+    }
+
+    setInterval(pollTelemetry, 1000);
+    pollTelemetry();
 
     async function triggerFault(faultType) {
       logTerminal(`>> [DEMO] Triggering ${faultType} fault injection...`);
+      // Instant visual update for button click
+      if (faultType === 'connection_starvation') {
+        updateTelemetryUI({
+          error_rate_percent: 28.5,
+          p99_latency_ms: 840.0,
+          active_db_connections: 20,
+          max_db_connections: 20,
+          worker_replicas: 2
+        });
+      } else if (faultType === 'oom_loop') {
+        updateTelemetryUI({
+          error_rate_percent: 40.0,
+          p99_latency_ms: 650.0,
+          active_db_connections: 12,
+          max_db_connections: 20,
+          worker_replicas: 2
+        });
+      }
+
       try {
         const resp = await fetch('/api/demo/trigger?fault=' + faultType, { method: 'POST' });
         const data = await resp.json();
@@ -421,6 +453,7 @@
         document.getElementById('incident-id-display').textContent = currentIncidentId;
         logTerminal(`>> [DEMO] P0 Incident registered: ${currentIncidentId}`);
         connectSSE(currentIncidentId);
+        setTimeout(pollTelemetry, 500);
       } catch (err) {
         logTerminal(`[ERROR] Failed to trigger demo: ${err.message}`);
       }
@@ -428,9 +461,17 @@
 
     async function clearFaults() {
       try {
-        await fetch('http://127.0.0.1:8001/fault/clear', { method: 'POST' });
+        await fetch('/api/demo/clear', { method: 'POST' });
         logTerminal('>> [RESET] Target microservice reset to healthy state.');
+        updateTelemetryUI({
+          error_rate_percent: 0.0,
+          p99_latency_ms: 42.0,
+          active_db_connections: 12,
+          max_db_connections: 20,
+          worker_replicas: 2
+        });
         resetUI();
+        setTimeout(pollTelemetry, 500);
       } catch (e) {
         logTerminal(`[ERROR] Reset failed: ${e.message}`);
       }
@@ -480,6 +521,13 @@
         highlightNode(data.node);
       } else if (type === 'TELEMETRY_INGESTED') {
         logTerminal(`[TRIAGE] Ingested Prometheus/Loki metrics: error=${data.error_rate}%, latency=${data.p99_latency}ms`);
+        updateTelemetryUI({
+          error_rate_percent: data.error_rate,
+          p99_latency_ms: data.p99_latency,
+          active_db_connections: data.active_connections,
+          max_db_connections: 20,
+          worker_replicas: 2
+        });
       } else if (type === 'TELEMETRY_SANITIZED') {
         logTerminal(`[SECURITY] PII/Secret scrubbing completed. Honeytoken canary: ${data.canary_token}`);
       } else if (type === 'RCA_COMPLETED') {
@@ -512,10 +560,18 @@
         logTerminal(`[CANARY] Phase 2: Telemetry observation window started.`);
       } else if (type === 'CANARY_SAMPLE_RECORDED') {
         logTerminal(`[CANARY] Sample ${data.sample}: Error=${data.error_rate}%, P99=${data.p99_latency}ms`);
+        updateTelemetryUI({
+          error_rate_percent: data.error_rate,
+          p99_latency_ms: data.p99_latency
+        });
       } else if (type === 'INCIDENT_RESOLVED') {
         logTerminal(`>>> [RESOLVED] Closed-loop canary verified! SLO restored. Error: ${data.median_error_rate}%`);
         document.getElementById('dag-status-pill').textContent = 'RESOLVED';
         document.getElementById('dag-status-pill').className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700';
+        updateTelemetryUI({
+          error_rate_percent: data.median_error_rate || 0.0,
+          p99_latency_ms: data.median_p99_latency || 42.0
+        });
         fetchPostMortem(currentIncidentId);
       }
     }

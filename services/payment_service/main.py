@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import random
 import time
@@ -175,8 +176,18 @@ async def background_traffic_generator():
 def health_check():
     snapshot = state.get_metrics_snapshot()
     if snapshot["status"] == "CRITICAL":
-        return Response(content='{"status":"DEGRADED","detail":"High error rate detected in upstream connection pool"}', media_type="application/json", status_code=503)
+        payload = json.dumps({
+            "status": "DEGRADED",
+            "detail": "High error rate detected in upstream connection pool",
+            "snapshot": snapshot,
+        })
+        return Response(content=payload, media_type="application/json", status_code=503)
     return {"status": "HEALTHY", "snapshot": snapshot}
+
+
+@app.get("/telemetry")
+def telemetry_endpoint():
+    return {"status": "OK", "snapshot": state.get_metrics_snapshot()}
 
 
 @app.get("/metrics")
@@ -265,6 +276,9 @@ def inject_connection_starvation():
     state.fault_connection_starvation = True
     state.fault_oom_loop = False
     state.active_db_connections = state.max_connections
+    # Immediately seed sliding window with failing requests (28.5% error rate, high P99)
+    state.recent_request_outcomes = [False] * 10 + [True] * 20
+    state.recent_latencies = [840.5, 910.2, 780.0, 950.1, 885.3]
 
     state.add_log(
         "CRITICAL",
@@ -286,6 +300,9 @@ def inject_oom_loop():
     state.fault_oom_loop = True
     state.fault_connection_starvation = False
     state.memory_mb = 1250.0
+    # Immediately seed sliding window with 500 errors (40% error rate, elevated latency)
+    state.recent_request_outcomes = [False] * 12 + [True] * 18
+    state.recent_latencies = [420.0, 580.0, 650.0, 710.0]
 
     state.add_log(
         "CRITICAL",

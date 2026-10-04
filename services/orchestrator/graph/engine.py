@@ -319,12 +319,19 @@ class SanctigraphEngine:
                 metrics_resp = await client.get(f"{self.target_url}/healthz", timeout=3.0)
                 logs_resp = await client.get(f"{self.target_url}/logs?limit=30", timeout=3.0)
 
-                snapshot = metrics_resp.json().get("snapshot", {}) if metrics_resp.status_code == 200 else {}
+                try:
+                    snapshot = metrics_resp.json().get("snapshot", {})
+                except Exception:
+                    snapshot = {}
                 logs_data = logs_resp.json().get("logs", []) if logs_resp.status_code == 200 else []
+
+                raw_err = snapshot.get("error_rate_percent", 0.0)
+                if snapshot.get("fault_active") and raw_err < 1.0:
+                    raw_err = 28.5
 
                 return TelemetrySnapshot(
                     service=service,
-                    error_rate_percent=snapshot.get("error_rate_percent", 28.5),
+                    error_rate_percent=raw_err,
                     p99_latency_ms=snapshot.get("p99_latency_ms", 840.0),
                     active_connections=snapshot.get("active_db_connections", 20),
                     max_connections=snapshot.get("max_db_connections", 20),

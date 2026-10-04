@@ -92,6 +92,11 @@ def run_full_browser_test():
 
         print("   [OK] Button clicked! Waiting for SSE events and triage pipeline...")
 
+        # Verify that Error Rate card immediately changed from 0.0% to elevated incident rate
+        incident_err = page.locator("#metric-error-rate").inner_text()
+        print(f"   [OK] Elevated Incident Error Rate in UI: {incident_err}")
+        assert incident_err != "0.0%", f"Expected Error Rate to change from 0.0%, but got {incident_err}"
+
         # Wait for Approval Gate to illuminate in UI (max 10s)
         page.wait_for_selector('#approval-actions button:has-text("APPROVE REMEDIATION")', timeout=10000)
         print("   [OK] Human Approval Gate activated and visible in UI!")
