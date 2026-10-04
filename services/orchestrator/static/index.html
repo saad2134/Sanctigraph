@@ -351,11 +351,11 @@
           </div>
 
           <div class="flex gap-2">
-            <button onclick="approveCurrentIncident()" class="flex-1 py-1.5 bg-[#007A5A] hover:bg-[#148567] text-white rounded font-medium text-[11px] flex items-center justify-center gap-1">
+            <button onclick="approveCurrentIncident()" class="flex-1 py-1.5 bg-[#007A5A] hover:bg-[#148567] text-white rounded font-medium text-[11px] flex items-center justify-center gap-1 transition">
               <i class="fa-solid fa-check"></i> Approve
             </button>
-            <button class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded font-medium text-[11px]">
-              Details
+            <button onclick="rejectCurrentIncident()" class="px-3 py-1.5 bg-rose-950/70 hover:bg-rose-900 text-rose-300 rounded font-medium text-[11px] border border-rose-800/80 transition">
+              Reject
             </button>
           </div>
         </div>
@@ -514,7 +514,9 @@
           highlightApprovalGate();
           renderApprovalModal({ hmac_token: currentHmacToken });
         }
-        if (data.status) {
+        if (data.status === 'ESCALATED') {
+          handleRejectionUI();
+        } else if (data.status) {
           document.getElementById('dag-status-pill').textContent = data.status;
         }
       } else if (type === 'NODE_STARTED') {
@@ -550,6 +552,9 @@
       } else if (type === 'APPROVAL_CONFIRMED') {
         logTerminal(`[AUTH] HMAC token signature cryptographically verified. Nonce burned.`);
         clearGateHighlight();
+      } else if (type === 'APPROVAL_REJECTED') {
+        logTerminal(`[ESCALATION] Remediation rejected: ${data.reason}. Dispatched to ${data.escalated_to}.`);
+        handleRejectionUI();
       } else if (type === 'STEP_STARTED') {
         logTerminal(`[EXEC] Executing Step: ${data.title}...`);
       } else if (type === 'STEP_COMPLETED') {
@@ -660,6 +665,46 @@
       }
     }
 
+    async function rejectCurrentIncident() {
+      if (!currentIncidentId) return;
+      logTerminal(`>> [HITL] Rejecting remediation plan and escalating to On-Call SRE...`);
+      try {
+        const resp = await fetch(`/api/incidents/${currentIncidentId}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Operator rejected remediation plan' })
+        });
+        const res = await resp.json();
+        logTerminal(`[ESCALATION] Remediation rejected. PagerDuty #PD-8492 dispatched to On-Call SRE.`);
+        handleRejectionUI();
+      } catch (err) {
+        logTerminal(`[ERROR] Rejection submission failed: ${err.message}`);
+      }
+    }
+
+    function handleRejectionUI() {
+      const gate = document.getElementById('node-gate');
+      if (gate) {
+        gate.classList.remove('node-glow-gate');
+        gate.classList.add('border-rose-500');
+      }
+      document.getElementById('dag-status-pill').textContent = 'ESCALATED';
+      document.getElementById('dag-status-pill').className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-700 font-bold';
+      document.getElementById('approval-badge').textContent = 'REJECTED & ESCALATED';
+      document.getElementById('approval-badge').className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-700';
+      document.getElementById('approval-actions').classList.add('hidden');
+
+      const container = document.getElementById('approval-content');
+      container.className = 'text-xs text-slate-200 flex-1 flex flex-col justify-center items-center text-center py-4 space-y-2';
+      container.innerHTML = `
+        <div class="w-10 h-10 rounded-full bg-rose-950/80 border border-rose-800 flex items-center justify-center text-rose-400 text-lg mb-1">
+          <i class="fa-solid fa-phone-volume"></i>
+        </div>
+        <p class="font-bold text-rose-300">Automated Remediation Aborted</p>
+        <p class="text-[11px] text-slate-400 max-w-xs">HMAC plan token revoked. Incident dispatched to Tier-3 On-Call SRE via PagerDuty (Incident #PD-8492).</p>
+      `;
+    }
+
     async function fetchPostMortem(incidentId) {
       try {
         const resp = await fetch(`/api/incidents/${incidentId}/postmortem`);
@@ -695,12 +740,14 @@
       document.getElementById('incident-severity-badge').className = 'px-2.5 py-1 rounded font-mono text-xs font-bold uppercase bg-slate-800 text-slate-400 border border-slate-700';
       document.getElementById('dag-status-pill').textContent = 'IDLE';
       document.getElementById('dag-status-pill').className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700';
+      document.getElementById('approval-badge').textContent = 'STANDBY';
+      document.getElementById('approval-badge').className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400';
       document.getElementById('exec-rca-summary').textContent = 'Waiting for incident trigger...';
       document.getElementById('exec-blast-tier').textContent = '--';
       document.getElementById('exec-blast-score').textContent = 'Risk Score: -- / 100';
       document.getElementById('exec-hmac-token').textContent = 'None';
       document.querySelectorAll('[id^="node-"]').forEach(el => {
-        el.className = el.className.replace(/node-glow-\w+/g, '');
+        el.className = el.className.replace(/node-glow-\w+/g, '').replace('border-rose-500', '');
       });
       document.getElementById('approval-actions').classList.add('hidden');
       document.getElementById('approval-content').className = 'text-xs text-slate-300 flex-1 flex flex-col justify-center items-center text-center py-6 text-slate-500';

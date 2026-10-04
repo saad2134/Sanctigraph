@@ -215,6 +215,41 @@ class SanctigraphEngine:
         asyncio.create_task(self.run_canary_verification(incident_id))
         return {"success": True, "status": "EXECUTION_COMPLETE_CANARY_WATCH_STARTED"}
 
+    async def reject_and_escalate(self, incident_id: str, reason: str = "Operator rejected plan") -> Dict[str, Any]:
+        """
+        Human-in-the-Loop Rejection:
+        Aborts automated execution, revokes the HMAC token, and escalates to on-call SRE.
+        """
+        if incident_id not in self.incidents:
+            raise ValueError("Incident not found")
+
+        record = self.incidents[incident_id]
+        if record.status != "AWAITING_APPROVAL":
+            raise ValueError(f"Incident is not in AWAITING_APPROVAL status (current: {record.status})")
+
+        token = record.approval_token
+        if token:
+            token.redeemed = True  # Revoke single-use HMAC token
+
+        record.status = "ESCALATED"
+        await self.emit_event(
+            incident_id,
+            "APPROVAL_REJECTED",
+            {
+                "incident_id": incident_id,
+                "reason": reason,
+                "escalated_to": "Tier-3 On-Call SRE (PagerDuty #PD-8492)",
+                "plan_revoked": True,
+            },
+        )
+        return {
+            "success": True,
+            "status": "ESCALATED",
+            "incident_id": incident_id,
+            "escalated_to": "Tier-3 On-Call SRE (PagerDuty #PD-8492)",
+            "message": "Automated remediation aborted. PagerDuty incident triggered for manual intervention.",
+        }
+
     # ==========================================
     # NODE 9: ADAPTIVE 2-PHASE CANARY VERIFICATION
     # ==========================================

@@ -150,32 +150,49 @@ def run_full_browser_test():
         print(f"   [OK] Screenshot saved: {screenshot_2}")
 
         # ----------------------------------------------------
-        # TEST SCENARIO 2: Click OOM CrashLoop
+        # TEST SCENARIO 2: Reject & Escalate to On-Call SRE
         # ----------------------------------------------------
-        print("\n5. Testing SCENARIO 2: Clicking 'OOM CrashLoop' button in UI...")
+        print("\n5. Testing SCENARIO 2: Triggering Incident & Testing 'Reject & Escalate'...")
         oom_btn = page.locator('button:has-text("OOM CrashLoop")')
         oom_btn.click()
         print("   [OK] OOM button clicked! Waiting for triage pipeline...")
 
-        page.wait_for_selector('#approval-actions button:has-text("APPROVE REMEDIATION")', timeout=10000)
-        oom_title = page.locator("#incident-title").inner_text()
-        print(f"   [OK] Second Incident Title: '{oom_title}'")
+        page.wait_for_selector('#approval-actions button:has-text("Reject & Escalate")', timeout=10000)
+        reject_btn = page.locator('#approval-actions button:has-text("Reject & Escalate")')
+        assert reject_btn.is_visible(), "Reject button not visible"
+        print("   [OK] Reject & Escalate button visible. Clicking...")
+        reject_btn.click()
 
-        # Approve second incident
-        approve_btn2 = page.locator('#approval-actions button:has-text("APPROVE REMEDIATION")')
-        approve_btn2.click()
-        print("   [OK] Second incident approved. Waiting for resolution...")
+        # Wait for Escalation badge and DAG status
+        page.wait_for_selector('#approval-badge:has-text("REJECTED & ESCALATED")', timeout=5000)
+        page.wait_for_selector('#dag-status-pill:has-text("ESCALATED")', timeout=5000)
+        print("   [OK] Approval badge marked: 'REJECTED & ESCALATED'!")
+        print("   [OK] DAG status marked: 'ESCALATED'!")
 
-        page.wait_for_selector('#dag-status-pill:has-text("RESOLVED")', timeout=30000)
-        print("   [OK] Second incident RESOLVED successfully!")
+        # Verify escalation content
+        approval_content = page.locator("#approval-content").inner_text()
+        assert "Automated Remediation Aborted" in approval_content, "Missing abort banner"
+        assert "PagerDuty" in approval_content, "Missing PagerDuty escalation detail"
+        print(f"   [OK] Escalation banner verified: '{approval_content[:60]}...'")
 
-        # Take screenshot of final UI state
-        screenshot_3 = "test_artifacts/03_final_cockpit.png"
+        # Take screenshot of Rejected & Escalated state
+        screenshot_3 = "test_artifacts/03_rejected_escalated.png"
         page.screenshot(path=screenshot_3, full_page=True)
         print(f"   [OK] Screenshot saved: {screenshot_3}")
 
+        # ----------------------------------------------------
+        # TEST RESET & NOMINAL RECOVERY
+        # ----------------------------------------------------
+        print("\n6. Testing UI Reset...")
+        reset_btn = page.locator('button:has-text("Reset")')
+        reset_btn.click()
+        page.wait_for_timeout(1000)
+        reset_badge = page.locator("#incident-severity-badge").inner_text()
+        print(f"   [OK] Severity after Reset: {reset_badge}")
+        assert "NO ACTIVE INCIDENT" in reset_badge, "UI not reset properly"
+
         # Check for any unhandled JS errors
-        print("\n6. Checking Browser Console & Runtime Errors...")
+        print("\n7. Checking Browser Console & Runtime Errors...")
         if page_errors:
             print(f"   [WARNING] Detected JS errors: {page_errors}")
         else:

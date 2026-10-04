@@ -36,6 +36,10 @@ class ApproveRequest(BaseModel):
     signature: str
 
 
+class RejectRequest(BaseModel):
+    reason: Optional[str] = "Operator rejected remediation plan"
+
+
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 STATIC_INDEX = STATIC_DIR / "index.html"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -84,6 +88,16 @@ async def incident_webhook(alert: AlertPayload):
 async def approve_incident(incident_id: str, req: ApproveRequest):
     try:
         res = await engine.approve_and_execute(incident_id, req.signature)
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/incidents/{incident_id}/reject")
+async def reject_incident(incident_id: str, req: Optional[RejectRequest] = None):
+    try:
+        reason = req.reason if req and req.reason else "Operator rejected remediation plan"
+        res = await engine.reject_and_escalate(incident_id, reason)
         return res
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
