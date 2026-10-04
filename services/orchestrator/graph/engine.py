@@ -25,12 +25,23 @@ logger = logging.getLogger("sanctigraph.engine")
 
 
 class SanctigraphEngine:
-    def __init__(self, target_url: str = "http://127.0.0.1:8001"):
+    def __init__(self, target_url: str = "http://127.0.0.1:8001", target_app: Any = None):
         self.target_url = target_url
-        self.tool_adapter = ToolAdapter(target_base_url=target_url)
+        self.target_app = target_app
+        self.tool_adapter = ToolAdapter(target_base_url=target_url, target_app=target_app)
         self.incidents: Dict[str, IncidentRecord] = {}
         self.alert_sliding_window: List[Dict] = []
         self.listeners: Dict[str, List[asyncio.Queue]] = {}
+
+    def set_target_app(self, app: Any):
+        self.target_app = app
+        self.tool_adapter.target_app = app
+
+    def get_http_client(self) -> httpx.AsyncClient:
+        if self.target_app:
+            transport = httpx.ASGITransport(app=self.target_app)
+            return httpx.AsyncClient(transport=transport, base_url="http://payment-service")
+        return httpx.AsyncClient()
 
     def subscribe(self, incident_id: str) -> asyncio.Queue:
         q = asyncio.Queue()
@@ -267,7 +278,7 @@ class SanctigraphEngine:
         is_ready = False
         for attempt in range(6):
             await asyncio.sleep(2.0)
-            async with httpx.AsyncClient() as client:
+            async with self.get_http_client() as client:
                 try:
                     resp = await client.get(f"{self.target_url}/healthz", timeout=2.0)
                     if resp.status_code == 200:
@@ -288,7 +299,7 @@ class SanctigraphEngine:
 
         for i in range(3):
             await asyncio.sleep(3.0)
-            async with httpx.AsyncClient() as client:
+            async with self.get_http_client() as client:
                 try:
                     resp = await client.get(f"{self.target_url}/healthz", timeout=2.0)
                     if resp.status_code == 200:
@@ -349,7 +360,7 @@ class SanctigraphEngine:
     # HELPER METHODS & SYNTHESIZERS
     # ==========================================
     async def _fetch_live_telemetry(self, service: str) -> TelemetrySnapshot:
-        async with httpx.AsyncClient() as client:
+        async with self.get_http_client() as client:
             try:
                 metrics_resp = await client.get(f"{self.target_url}/healthz", timeout=3.0)
                 logs_resp = await client.get(f"{self.target_url}/logs?limit=30", timeout=3.0)

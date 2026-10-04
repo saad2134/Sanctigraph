@@ -54,8 +54,15 @@ class ToolAdapter:
     Strictly bans raw shell execution (execve only, shell=False).
     """
 
-    def __init__(self, target_base_url: str = "http://127.0.0.1:8001"):
+    def __init__(self, target_base_url: str = "http://127.0.0.1:8001", target_app: Any = None):
         self.target_base_url = target_base_url
+        self.target_app = target_app
+
+    def get_http_client(self) -> httpx.AsyncClient:
+        if self.target_app:
+            transport = httpx.ASGITransport(app=self.target_app)
+            return httpx.AsyncClient(transport=transport, base_url="http://payment-service")
+        return httpx.AsyncClient()
 
     async def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"Executing tool {tool_name} with params: {params}")
@@ -84,7 +91,7 @@ class ToolAdapter:
             raise ValueError(f"Unauthorized or unknown tool contract: {tool_name}")
 
     async def _scale_deployment(self, model: KubectlScaleDeployment) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with self.get_http_client() as client:
             try:
                 resp = await client.post(
                     f"{self.target_base_url}/admin/reconfigure",
@@ -105,7 +112,7 @@ class ToolAdapter:
                 }
 
     async def _reset_payment_pool(self, model: PaymentServicePoolReset) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with self.get_http_client() as client:
             try:
                 resp = await client.post(
                     f"{self.target_base_url}/admin/reconfigure",
@@ -130,7 +137,7 @@ class ToolAdapter:
                 }
 
     async def _rollout_undo(self, model: KubectlRolloutUndo) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with self.get_http_client() as client:
             try:
                 resp = await client.post(
                     f"{self.target_base_url}/admin/reconfigure",
@@ -159,9 +166,12 @@ class ToolAdapter:
         }
 
     async def _health_check(self, model: HttpHealthCheck) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with self.get_http_client() as client:
             try:
-                resp = await client.get(model.url, timeout=model.timeout_ms / 1000.0)
+                target_url = model.url
+                if self.target_app and ":8001" in target_url:
+                    target_url = f"{self.target_base_url}/healthz"
+                resp = await client.get(target_url, timeout=model.timeout_ms / 1000.0)
                 return {
                     "success": resp.status_code < 400,
                     "stdout": f"Health check {model.url} returned HTTP {resp.status_code}",

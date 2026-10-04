@@ -153,7 +153,7 @@ async def trigger_demo_incident(fault: str = "connection_starvation"):
     2. Emits Prometheus P0 Alertmanager webhook.
     3. Triggers Sanctigraph autonomous triage pipeline.
     """
-    async with httpx.AsyncClient() as client:
+    async with engine.get_http_client() as client:
         try:
             if fault == "oom_loop":
                 await client.post(f"{engine.target_url}/fault/oom_loop", timeout=3.0)
@@ -196,7 +196,7 @@ async def trigger_demo_incident(fault: str = "connection_starvation"):
 async def get_target_telemetry():
     """Proxy endpoint to fetch telemetry from the target microservice safely with fallback."""
     try:
-        async with httpx.AsyncClient() as client:
+        async with engine.get_http_client() as client:
             resp = await client.get(f"{engine.target_url}/healthz", timeout=2.0)
             data = resp.json()
             if "snapshot" in data:
@@ -223,7 +223,7 @@ async def clear_target_faults():
     engine.incidents.clear()
     engine.alert_sliding_window.clear()
     try:
-        async with httpx.AsyncClient() as client:
+        async with engine.get_http_client() as client:
             resp = await client.post(f"{engine.target_url}/fault/clear", timeout=2.0)
             if resp.status_code == 200:
                 return resp.json()
