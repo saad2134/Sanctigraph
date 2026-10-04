@@ -61,7 +61,7 @@ class SanctigraphEngine:
 
         # Check if an active incident already exists for this service or upstream root
         for active in self.incidents.values():
-            if active.status not in ["RESOLVED", "FAILED"] and active.service == alert.service:
+            if active.status not in ["RESOLVED", "FAILED", "ESCALATED"] and active.service == alert.service:
                 logger.info(f"Deduplicated alert '{alert.alertname}' into active incident {active.incident_id}")
                 await self.emit_event(
                     active.incident_id,

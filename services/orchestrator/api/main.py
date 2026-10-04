@@ -220,6 +220,8 @@ async def get_target_telemetry():
 @app.post("/api/demo/clear")
 async def clear_target_faults():
     """Proxy endpoint to clear faults on target microservice."""
+    engine.incidents.clear()
+    engine.alert_sliding_window.clear()
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{engine.target_url}/fault/clear", timeout=2.0)
