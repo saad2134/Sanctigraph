@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sanctigraph - Autonomous Incident Triage & Guarded Remediation Cockpit</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            signal: '#F52A34',
+            cyber: '#00F0FF',
+            safe: '#10B981',
+            amber: '#F59E0B',
+            darkbg: '#090D16',
+            cardbg: '#111827',
+            panelbg: '#161F30'
+          },
+          fontFamily: {
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+    .node-glow-running {
+      box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+      border-color: #00F0FF !important;
+    }
+    .node-glow-gate {
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+      border-color: #F59E0B !important;
+      animation: pulse-slow 2s infinite ease-in-out;
+    }
+    .node-glow-success {
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+      border-color: #10B981 !important;
+    }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #0B0F17; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-[#070A10] text-slate-100 min-h-screen flex flex-col font-sans selection:bg-signal selection:text-white">
+
+  <!-- TOP HEADER -->
+  <header class="border-b border-slate-800 bg-[#0C101A] px-6 py-3.5 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2.5">
+        <img src="/static/icon-192.png" alt="Sanctigraph Logo" class="w-8 h-8 rounded-lg shadow-lg shadow-rose-900/40 object-cover">
+        <div>
+          <span class="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">SANCTI<span class="text-signal">GRAPH</span></span>
+          <span class="text-[10px] uppercase font-mono px-2 py-0.5 ml-2 rounded bg-signal/20 text-signal border border-signal/30 font-semibold">Track 01 • Agentic AI</span>
+        </div>
+      </div>
+      <div class="h-5 w-px bg-slate-800 hidden md:block"></div>
+      <div class="text-xs text-slate-400 font-mono hidden md:flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-safe animate-pulse"></span>
+        Target: <span class="text-slate-200">payment-checkout-api (:8001)</span>
+      </div>
+    </div>
+
+    <!-- DEMO QUICK ACTIONS -->
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-slate-400 font-mono hidden lg:inline mr-1">Demo Triggers:</span>
+      <button onclick="triggerFault('connection_starvation')" class="px-3 py-1.5 rounded-md bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800/80 text-xs font-mono font-medium flex items-center gap-1.5 transition">
+        <i class="fa-solid fa-triangle-exclamation text-signal"></i> 504 Pool Starvation
+      </button>
+      <button onclick="triggerFault('oom_loop')" class="px-3 py-1.5 rounded-md bg-amber-950/70 hover:bg-amber-900 text-amber-300 border border-amber-800/80 text-xs font-mono font-medium flex items-center gap-1.5 transition">
+        <i class="fa-solid fa-microchip text-amber-400"></i> OOM CrashLoop
+      </button>
+      <button onclick="clearFaults()" class="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono flex items-center gap-1.5 transition">
+        <i class="fa-solid fa-rotate-left"></i> Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN COCKPIT -->
+  <main class="flex-1 p-6 max-w-[1720px] mx-auto w-full grid grid-cols-1 xl:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: INCIDENT & TELEMETRY STREAM (8 COLS) -->
+    <div class="xl:col-span-8 flex flex-col gap-6">
+
+      <!-- PROGRESSIVE DISCLOSURE EXECUTIVE BANNER -->
+      <section id="executive-banner" class="bg-gradient-to-r from-[#141B2D] via-[#111827] to-[#12192B] border border-slate-800 rounded-xl p-5 shadow-xl relative overflow-hidden">
+        <div class="absolute -right-16 -top-16 w-48 h-48 bg-signal/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4 mb-4">
+          <div class="flex items-center gap-3">
+            <span id="incident-severity-badge" class="px-2.5 py-1 rounded font-mono text-xs font-bold uppercase bg-slate-800 text-slate-400 border border-slate-700">NO ACTIVE INCIDENT</span>
+            <h1 id="incident-title" class="text-base md:text-lg font-semibold text-slate-100 tracking-tight">System Operating at Nominal Baseline</h1>
+          </div>
+          <div class="flex items-center gap-4 text-xs font-mono text-slate-400">
+            <div>Incident ID: <span id="incident-id-display" class="text-cyber">--</span></div>
+            <div>MTTR: <span id="mttr-timer" class="text-slate-200">00:00</span></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+          <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+            <div class="text-slate-400 font-mono mb-1 flex items-center gap-1.5">
+              <i class="fa-solid fa-magnifying-glass text-cyber"></i> Root Cause
+            </div>
+            <div id="exec-rca-summary" class="font-medium text-slate-200 leading-snug line-clamp-2">
+              Waiting for incident trigger...
+            </div>
+          </div>
+
+          <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+            <div class="text-slate-400 font-mono mb-1 flex items-center gap-1.5">
+              <i class="fa-solid fa-shield text-amber-400"></i> Blast Radius Tier
+            </div>
+            <div id="exec-blast-tier" class="font-semibold text-amber-400">
+              --
+            </div>
+            <div id="exec-blast-score" class="text-[11px] text-slate-400 mt-0.5">Risk Score: -- / 100</div>
+          </div>
+
+          <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+            <div class="text-slate-400 font-mono mb-1 flex items-center gap-1.5">
+              <i class="fa-solid fa-key text-signal"></i> HMAC Plan Token
+            </div>
+            <div id="exec-hmac-token" class="font-mono text-[11px] text-slate-300 truncate" title="Token signature">
+              None
+            </div>
+            <div id="exec-hmac-expiry" class="text-[11px] text-slate-400 mt-0.5">Expires in: --</div>
+          </div>
+
+          <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+            <div class="text-slate-400 font-mono mb-1 flex items-center gap-1.5">
+              <i class="fa-solid fa-chart-line text-safe"></i> Canary Recovery
+            </div>
+            <div id="exec-canary-status" class="font-semibold text-slate-300">
+              Standby
+            </div>
+            <div id="exec-slo-status" class="text-[11px] text-slate-400 mt-0.5">SLO Target: &lt;1.0% Error</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- INTERACTIVE STATE MACHINE DAG VISUALIZER -->
+      <section class="bg-[#0E131F] border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-diagram-project text-cyber"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 font-mono">LangGraph 9-Node Stateful Agent DAG</h2>
+          </div>
+          <span id="dag-status-pill" class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">IDLE</span>
+        </div>
+
+        <!-- DAG SVG CANVAS -->
+        <div class="relative w-full overflow-x-auto custom-scroll py-4 px-3 bg-[#090D16] rounded-lg border border-slate-900 min-h-[140px]">
+          <div class="flex items-center justify-between gap-2 min-w-[1060px]">
+
+            <!-- Node 1 -->
+            <div id="node-alert-ingest" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">1</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="Alert Ingest">Alert Ingest</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">3-Min Dedup</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 2 -->
+            <div id="node-telemetry" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">2</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="Parallel Triage">Parallel Triage</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">Telemetry</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 3 -->
+            <div id="node-sanitizer" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">3</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="Sanitizer">Sanitizer</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">PII & XML</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 4 -->
+            <div id="node-rca" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">4</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="RCA Synthesizer">RCA Engine</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">&lt;6s Fallback</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 5 -->
+            <div id="node-blast" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">5</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="Blast Radius">Blast Radius</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">Tier 2 Guarded</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 6: Approval Gate (CRITICAL) -->
+            <div id="node-gate" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#1F1B14] border-2 border-amber-600/70 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-amber-950 text-amber-300 flex items-center justify-center text-[10px] font-mono font-bold">6</span>
+              <div class="text-[11px] font-bold text-amber-300 leading-tight w-full truncate" title="HMAC Gate">HMAC Gate</div>
+              <div class="text-[10px] text-amber-400/80 font-mono w-full truncate">HITL Paused</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 7 -->
+            <div id="node-exec" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">7</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="execve Sandbox">execve Sandbox</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">Zero Raw Shell</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 8 -->
+            <div id="node-canary" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">8</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="Adaptive Canary">Canary Watch</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">2-Phase Median</div>
+            </div>
+            <i class="fa-solid fa-arrow-right text-slate-600 text-xs flex-shrink-0"></i>
+
+            <!-- Node 9 -->
+            <div id="node-postmortem" class="w-[104px] min-w-[104px] max-w-[104px] h-[96px] min-h-[96px] max-h-[96px] p-2.5 rounded-lg bg-[#141B2D] border border-slate-700/80 flex flex-col items-center justify-between text-center transition-all flex-shrink-0">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-mono font-bold">9</span>
+              <div class="text-[11px] font-semibold text-slate-200 leading-tight w-full truncate" title="Post-Mortem">Post-Mortem</div>
+              <div class="text-[10px] text-slate-400 font-mono w-full truncate">Auto-Artifact</div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- LIVE TELEMETRY DASHBOARD -->
+      <section class="bg-[#0E131F] border border-slate-800 rounded-xl p-5 shadow-xl">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-wave-square text-cyber"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 font-mono">Real-Time Service Telemetry (:8001)</h2>
+          </div>
+          <span class="text-xs text-slate-400 font-mono flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-safe animate-ping"></span> Live Scrapes (1.5s)
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="p-3 rounded-lg bg-[#131929] border border-slate-800">
+            <div class="text-[11px] font-mono text-slate-400">Error Rate</div>
+            <div id="metric-error-rate" class="text-2xl font-bold font-mono text-safe mt-1">0.0%</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-0.5">Target: &lt; 1.0%</div>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[#131929] border border-slate-800">
+            <div class="text-[11px] font-mono text-slate-400">P99 Latency</div>
+            <div id="metric-p99" class="text-2xl font-bold font-mono text-slate-200 mt-1">42.0ms</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-0.5">SLA: &lt; 250ms</div>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[#131929] border border-slate-800">
+            <div class="text-[11px] font-mono text-slate-400">Active DB Connections</div>
+            <div id="metric-conns" class="text-2xl font-bold font-mono text-slate-200 mt-1">12 / 20</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-0.5">PostgreSQL Pool</div>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[#131929] border border-slate-800">
+            <div class="text-[11px] font-mono text-slate-400">Worker Replicas</div>
+            <div id="metric-replicas" class="text-2xl font-bold font-mono text-slate-200 mt-1">2</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-0.5">Kubernetes Pods</div>
+          </div>
+        </div>
+
+        <!-- EXECUTION CONSOLE -->
+        <div class="mt-4 pt-4 border-t border-slate-800/80">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400 mb-2">
+            <span>Live Audit & Execution Log</span>
+            <span class="text-[11px]">SSE Connected</span>
+          </div>
+          <div id="execution-terminal" class="bg-[#080B12] border border-slate-900 rounded-lg p-3 font-mono text-xs text-slate-300 h-44 overflow-y-auto custom-scroll space-y-1">
+            <div class="text-slate-500">> Sanctigraph Autonomous Engine online and monitoring...</div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- RIGHT COLUMN: ACTION CENTER, SLACK CARD, POST-MORTEM (4 COLS) -->
+    <div class="xl:col-span-4 flex flex-col gap-6">
+
+      <!-- HUMAN APPROVAL ACTION CARD -->
+      <section id="approval-card" class="bg-[#12192B] border-2 border-slate-800 rounded-xl p-5 shadow-xl flex flex-col transition-all">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-fingerprint text-amber-400"></i>
+            <h3 class="text-sm font-bold font-mono uppercase tracking-wider text-slate-200">Human Approval Gate</h3>
+          </div>
+          <span id="approval-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">STANDBY</span>
+        </div>
+
+        <div id="approval-content" class="text-xs text-slate-300 flex-1 flex flex-col justify-center items-center text-center py-6 text-slate-500">
+          <i class="fa-solid fa-lock text-slate-600 text-3xl mb-2"></i>
+          <p>No remediation currently pending signoff.</p>
+          <p class="text-[11px] text-slate-600 mt-1">Trigger an incident above to generate an HMAC-bound plan.</p>
+        </div>
+
+        <div id="approval-actions" class="hidden flex flex-col gap-2 mt-4 pt-3 border-t border-slate-800">
+          <button onclick="approveCurrentIncident()" class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-mono font-bold text-xs shadow-lg shadow-emerald-950 flex items-center justify-center gap-2 transition">
+            <i class="fa-solid fa-check-double"></i> APPROVE REMEDIATION (HMAC-SIGNED)
+          </button>
+          <button onclick="rejectCurrentIncident()" class="w-full py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-mono text-xs flex items-center justify-center gap-2 transition">
+            <i class="fa-solid fa-xmark"></i> Reject & Escalate to On-Call SRE
+          </button>
+        </div>
+      </section>
+
+      <!-- 2 AM SLACK MOBILE CARD PREVIEW -->
+      <section class="bg-[#0E131F] border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+          <div class="flex items-center gap-2">
+            <i class="fa-brands fa-slack text-rose-400"></i>
+            <h3 class="text-sm font-bold font-mono uppercase tracking-wider text-slate-200">2 AM Mobile Slack Responder</h3>
+          </div>
+          <span class="text-[10px] font-mono text-slate-500">Block Kit Preview</span>
+        </div>
+
+        <!-- SLACK CARD MOCKUP -->
+        <div class="bg-[#1A1D21] border border-slate-700/60 rounded-lg p-3.5 text-xs text-slate-200 font-sans shadow-md">
+          <div class="flex items-center gap-2 mb-2">
+            <img src="/static/icon-192.png" alt="Sanctigraph Bot" class="w-5 h-5 rounded object-cover shadow-sm">
+            <span class="font-bold text-slate-200">Sanctigraph Bot</span>
+            <span class="text-[10px] text-slate-500 font-mono">2:14 AM</span>
+          </div>
+
+          <div class="font-bold text-rose-400 mb-1 flex items-center gap-1.5">
+            <i class="fa-solid fa-triangle-exclamation"></i> [P0 Incident] payment-checkout-api
+          </div>
+          <p id="slack-card-text" class="text-slate-300 text-[11px] mb-2 leading-relaxed">
+            High 504 Gateway Timeouts: PostgreSQL connection pool saturated (20/20 active leases).
+          </p>
+
+          <div class="bg-[#222529] p-2 rounded border border-slate-700 text-[11px] space-y-1 mb-3">
+            <div><span class="text-slate-400 font-mono">Root Cause:</span> PR #104 reduced idle timeout</div>
+            <div><span class="text-slate-400 font-mono">Plan:</span> Reset pool (max=50) + Scale 4 replicas</div>
+            <div><span class="text-slate-400 font-mono">Blast Radius:</span> Tier 2 Guarded-Write</div>
+          </div>
+
+          <div class="flex gap-2">
+            <button onclick="approveCurrentIncident()" class="flex-1 py-1.5 bg-[#007A5A] hover:bg-[#148567] text-white rounded font-medium text-[11px] flex items-center justify-center gap-1">
+              <i class="fa-solid fa-check"></i> Approve
+            </button>
+            <button class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded font-medium text-[11px]">
+              Details
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- POST-MORTEM ARTIFACT TAB -->
+      <section class="bg-[#0E131F] border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-file-contract text-safe"></i>
+            <h3 class="text-sm font-bold font-mono uppercase tracking-wider text-slate-200">Blameless Post-Mortem</h3>
+          </div>
+          <button id="download-postmortem-btn" onclick="downloadPostMortem()" class="text-xs text-cyber hover:underline font-mono hidden">
+            <i class="fa-solid fa-download"></i> Export MD
+          </button>
+        </div>
+
+        <div id="postmortem-box" class="bg-[#080B12] border border-slate-900 rounded-lg p-3 text-xs font-mono text-slate-400 h-44 overflow-y-auto custom-scroll leading-relaxed">
+          <p class="text-slate-600 italic">Post-mortem artifact will be generated automatically upon closed-loop canary resolution.</p>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- JAVASCRIPT CONTROLLER & SSE STREAM -->
+  <script>
+    let currentIncidentId = null;
+    let currentPlanHash = null;
+    let currentHmacToken = null;
+    let sseSource = null;
+
+    // Polling Metrics (:8001)
+    setInterval(async () => {
+      try {
+        const resp = await fetch('http://127.0.0.1:8001/healthz');
+        if (resp.ok) {
+          const json = await resp.json();
+          const s = json.snapshot || {};
+          document.getElementById('metric-error-rate').textContent = (s.error_rate_percent || 0.0).toFixed(1) + '%';
+          document.getElementById('metric-p99').textContent = (s.p99_latency_ms || 42.0).toFixed(1) + 'ms';
+          document.getElementById('metric-conns').textContent = (s.active_db_connections || 12) + ' / ' + (s.max_db_connections || 20);
+          document.getElementById('metric-replicas').textContent = s.worker_replicas || 2;
+
+          const errEl = document.getElementById('metric-error-rate');
+          if (s.error_rate_percent > 5.0) {
+            errEl.className = 'text-2xl font-bold font-mono text-signal mt-1';
+          } else {
+            errEl.className = 'text-2xl font-bold font-mono text-safe mt-1';
+          }
+        }
+      } catch (e) {
+        // Target service might be warming up
+      }
+    }, 1500);
+
+    async function triggerFault(faultType) {
+      logTerminal(`>> [DEMO] Triggering ${faultType} fault injection...`);
+      try {
+        const resp = await fetch('/api/demo/trigger?fault=' + faultType, { method: 'POST' });
+        const data = await resp.json();
+        currentIncidentId = data.incident_id;
+        document.getElementById('incident-id-display').textContent = currentIncidentId;
+        logTerminal(`>> [DEMO] P0 Incident registered: ${currentIncidentId}`);
+        connectSSE(currentIncidentId);
+      } catch (err) {
+        logTerminal(`[ERROR] Failed to trigger demo: ${err.message}`);
+      }
+    }
+
+    async function clearFaults() {
+      try {
+        await fetch('http://127.0.0.1:8001/fault/clear', { method: 'POST' });
+        logTerminal('>> [RESET] Target microservice reset to healthy state.');
+        resetUI();
+      } catch (e) {
+        logTerminal(`[ERROR] Reset failed: ${e.message}`);
+      }
+    }
+
+    function connectSSE(incidentId) {
+      if (sseSource) sseSource.close();
+      logTerminal(`>> Subscribing to SSE stream for ${incidentId}...`);
+      sseSource = new EventSource(`/api/incidents/${incidentId}/stream`);
+
+      sseSource.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleSSEMessage(msg);
+        } catch (e) {}
+      };
+    }
+
+    function handleSSEMessage(msg) {
+      const type = msg.event;
+      const data = msg.data;
+
+      if (type === 'SNAPSHOT' || type === 'INCIDENT_CREATED') {
+        updateIncidentHeader(data);
+        if (data.rca) {
+          document.getElementById('exec-rca-summary').textContent = data.rca.summary || 'Root Cause Identified';
+          document.getElementById('slack-card-text').textContent = data.rca.summary || '';
+        }
+        if (data.blast_radius) {
+          document.getElementById('exec-blast-tier').textContent = data.blast_radius.risk_tier;
+          document.getElementById('exec-blast-score').textContent = `Risk Score: ${data.blast_radius.risk_score} / 100`;
+        }
+        if (data.plan) {
+          currentPlanHash = data.plan.plan_hash;
+        }
+        if (data.approval_token && data.status === 'AWAITING_APPROVAL') {
+          currentHmacToken = data.approval_token.signature;
+          document.getElementById('exec-hmac-token').textContent = currentHmacToken.substring(0, 18) + '...';
+          document.getElementById('exec-hmac-expiry').textContent = 'Valid for 5 mins';
+          highlightApprovalGate();
+          renderApprovalModal({ hmac_token: currentHmacToken });
+        }
+        if (data.status) {
+          document.getElementById('dag-status-pill').textContent = data.status;
+        }
+      } else if (type === 'NODE_STARTED') {
+        highlightNode(data.node);
+      } else if (type === 'TELEMETRY_INGESTED') {
+        logTerminal(`[TRIAGE] Ingested Prometheus/Loki metrics: error=${data.error_rate}%, latency=${data.p99_latency}ms`);
+      } else if (type === 'TELEMETRY_SANITIZED') {
+        logTerminal(`[SECURITY] PII/Secret scrubbing completed. Honeytoken canary: ${data.canary_token}`);
+      } else if (type === 'RCA_COMPLETED') {
+        document.getElementById('exec-rca-summary').textContent = data.summary;
+        document.getElementById('slack-card-text').textContent = data.summary;
+        logTerminal(`[RCA] Root Cause identified: ${data.summary}`);
+      } else if (type === 'BLAST_RADIUS_COMPUTED') {
+        document.getElementById('exec-blast-tier').textContent = data.risk_tier;
+        document.getElementById('exec-blast-score').textContent = `Risk Score: ${data.risk_score} / 100`;
+      } else if (type === 'PLAN_GENERATED') {
+        currentPlanHash = data.plan_hash;
+        logTerminal(`[PLANNER] Remediation DAG created (${data.steps.length} steps). Plan Hash: ${data.plan_hash.substring(0, 16)}...`);
+      } else if (type === 'APPROVAL_GATE_PAUSED') {
+        currentHmacToken = data.hmac_token;
+        document.getElementById('exec-hmac-token').textContent = currentHmacToken.substring(0, 18) + '...';
+        document.getElementById('exec-hmac-expiry').textContent = 'Valid for 5 mins';
+        highlightApprovalGate();
+        renderApprovalModal(data);
+        logTerminal(`[GATE] Suspended at Human Gate. Cryptographic token generated.`);
+      } else if (type === 'APPROVAL_CONFIRMED') {
+        logTerminal(`[AUTH] HMAC token signature cryptographically verified. Nonce burned.`);
+        clearGateHighlight();
+      } else if (type === 'STEP_STARTED') {
+        logTerminal(`[EXEC] Executing Step: ${data.title}...`);
+      } else if (type === 'STEP_COMPLETED') {
+        logTerminal(`[EXEC] ✓ ${data.stdout} (${data.elapsed_ms}ms)`);
+      } else if (type === 'CANARY_PHASE_1_START') {
+        logTerminal(`[CANARY] Phase 1: Pod readiness synchronization started.`);
+      } else if (type === 'CANARY_PHASE_2_START') {
+        logTerminal(`[CANARY] Phase 2: Telemetry observation window started.`);
+      } else if (type === 'CANARY_SAMPLE_RECORDED') {
+        logTerminal(`[CANARY] Sample ${data.sample}: Error=${data.error_rate}%, P99=${data.p99_latency}ms`);
+      } else if (type === 'INCIDENT_RESOLVED') {
+        logTerminal(`>>> [RESOLVED] Closed-loop canary verified! SLO restored. Error: ${data.median_error_rate}%`);
+        document.getElementById('dag-status-pill').textContent = 'RESOLVED';
+        document.getElementById('dag-status-pill').className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700';
+        fetchPostMortem(currentIncidentId);
+      }
+    }
+
+    function updateIncidentHeader(rec) {
+      document.getElementById('incident-title').textContent = rec.title || 'P0 Outage Detected';
+      document.getElementById('incident-severity-badge').textContent = rec.severity || 'P0 CRITICAL';
+      document.getElementById('incident-severity-badge').className = 'px-2.5 py-1 rounded font-mono text-xs font-bold uppercase bg-rose-950 text-rose-300 border border-rose-800';
+    }
+
+    function highlightNode(nodeName) {
+      document.getElementById('dag-status-pill').textContent = nodeName.toUpperCase();
+      const nodeMap = {
+        'AlertIngestNode': 'node-alert-ingest',
+        'ParallelTelemetryNode': 'node-telemetry',
+        'TelemetrySanitizerNode': 'node-sanitizer',
+        'RootCauseSynthesizerNode': 'node-rca',
+        'BlastRadiusClassifierNode': 'node-blast',
+        'RemediationPlannerNode': 'node-blast',
+        'HumanApprovalGateNode': 'node-gate',
+        'SandboxedExecutionNode': 'node-exec',
+        'AdaptiveCanaryVerificationNode': 'node-canary',
+        'PostMortemGeneratorNode': 'node-postmortem'
+      };
+
+      const targetId = nodeMap[nodeName];
+      if (targetId) {
+        document.querySelectorAll('[id^="node-"]').forEach(el => el.classList.remove('node-glow-running'));
+        const el = document.getElementById(targetId);
+        if (el) el.classList.add('node-glow-running');
+      }
+    }
+
+    function highlightApprovalGate() {
+      const gate = document.getElementById('node-gate');
+      gate.classList.add('node-glow-gate');
+      document.getElementById('approval-badge').textContent = 'APPROVAL REQUIRED';
+      document.getElementById('approval-badge').className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-700 animate-pulse';
+      document.getElementById('approval-card').classList.add('border-amber-500');
+    }
+
+    function clearGateHighlight() {
+      const gate = document.getElementById('node-gate');
+      gate.classList.remove('node-glow-gate');
+      gate.classList.add('node-glow-success');
+      document.getElementById('approval-badge').textContent = 'APPROVED';
+      document.getElementById('approval-badge').className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-700';
+      document.getElementById('approval-actions').classList.add('hidden');
+    }
+
+    function renderApprovalModal(data) {
+      const container = document.getElementById('approval-content');
+      container.className = 'text-xs text-slate-200 flex-1 space-y-2.5 py-2';
+      container.innerHTML = `
+        <div class="bg-slate-900/90 p-2.5 rounded border border-slate-800">
+          <div class="font-bold text-amber-300 mb-1 flex items-center gap-1.5">
+            <i class="fa-solid fa-triangle-exclamation"></i> Tier 2 Guarded-Write Plan
+          </div>
+          <div class="text-[11px] text-slate-300">
+            • <b>Step 1:</b> PaymentServicePoolReset(max_connections=50)<br>
+            • <b>Step 2:</b> KubectlScaleDeployment(replicas=4)<br>
+            • <b>Step 3:</b> HttpHealthCheck(:8001/healthz)
+          </div>
+        </div>
+        <div class="text-[10px] text-slate-400 font-mono bg-slate-950 p-2 rounded border border-slate-900 truncate">
+          <span class="text-slate-500">HMAC-SHA256 Token:</span><br>
+          <span class="text-cyber">${data.hmac_token}</span>
+        </div>
+      `;
+      document.getElementById('approval-actions').classList.remove('hidden');
+    }
+
+    async function approveCurrentIncident() {
+      if (!currentIncidentId || !currentHmacToken) return;
+      logTerminal(`>> Submitting HMAC token signature for approval...`);
+      try {
+        const resp = await fetch(`/api/incidents/${currentIncidentId}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ signature: currentHmacToken })
+        });
+        const res = await resp.json();
+        logTerminal(`>> Approval response: ${res.status || 'OK'}`);
+      } catch (err) {
+        logTerminal(`[ERROR] Approval submission failed: ${err.message}`);
+      }
+    }
+
+    async function fetchPostMortem(incidentId) {
+      try {
+        const resp = await fetch(`/api/incidents/${incidentId}/postmortem`);
+        if (resp.ok) {
+          const text = await resp.text();
+          document.getElementById('postmortem-box').innerHTML = `<pre class="whitespace-pre-wrap font-mono text-[11px] text-slate-300">${text}</pre>`;
+          document.getElementById('download-postmortem-btn').classList.remove('hidden');
+        }
+      } catch (e) {}
+    }
+
+    function downloadPostMortem() {
+      const box = document.getElementById('postmortem-box');
+      const blob = new Blob([box.innerText], { type: 'text/markdown' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `postmortem-${currentIncidentId}.md`;
+      a.click();
+    }
+
+    function logTerminal(str) {
+      const term = document.getElementById('execution-terminal');
+      const el = document.createElement('div');
+      el.className = 'font-mono text-xs ' + (str.includes('[ERROR]') ? 'text-rose-400' : (str.includes('[RESOLVED]') ? 'text-emerald-400 font-bold' : (str.includes('[GATE]') ? 'text-amber-300 font-bold' : 'text-slate-300')));
+      el.textContent = `[${new Date().toLocaleTimeString()}] ${str}`;
+      term.appendChild(el);
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function resetUI() {
+      document.getElementById('incident-title').textContent = 'System Operating at Nominal Baseline';
+      document.getElementById('incident-severity-badge').textContent = 'NO ACTIVE INCIDENT';
+      document.getElementById('incident-severity-badge').className = 'px-2.5 py-1 rounded font-mono text-xs font-bold uppercase bg-slate-800 text-slate-400 border border-slate-700';
+      document.getElementById('dag-status-pill').textContent = 'IDLE';
+      document.getElementById('dag-status-pill').className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700';
+      document.getElementById('exec-rca-summary').textContent = 'Waiting for incident trigger...';
+      document.getElementById('exec-blast-tier').textContent = '--';
+      document.getElementById('exec-blast-score').textContent = 'Risk Score: -- / 100';
+      document.getElementById('exec-hmac-token').textContent = 'None';
+      document.querySelectorAll('[id^="node-"]').forEach(el => {
+        el.className = el.className.replace(/node-glow-\w+/g, '');
+      });
+      document.getElementById('approval-actions').classList.add('hidden');
+      document.getElementById('approval-content').className = 'text-xs text-slate-300 flex-1 flex flex-col justify-center items-center text-center py-6 text-slate-500';
+      document.getElementById('approval-content').innerHTML = `
+        <i class="fa-solid fa-lock text-slate-600 text-3xl mb-2"></i>
+        <p>No remediation currently pending signoff.</p>
+      `;
+    }
+  </script>
+</body>
+</html>
