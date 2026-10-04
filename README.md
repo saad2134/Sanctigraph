@@ -58,6 +58,10 @@ flowchart LR
 
 ## 🚀 Live Demo & Quickstart
 
+### 🎥 Video Walkthrough (Voiceover Demo)
+Watch the complete 2-minute 53-second end-to-end voiceover demonstration of Sanctigraph:  
+▶️ **Video File:** [`sanctigraph_demo_voiceover.mp4`](sanctigraph_demo_voiceover.mp4) (Full HD 1080p with neural voiceover narration)
+
 ### Prerequisites
 * Python 3.10+
 * Dependencies: `fastapi`, `uvicorn`, `pydantic`, `httpx`, `langgraph`
