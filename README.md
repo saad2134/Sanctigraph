@@ -2,7 +2,9 @@
 
 > **WCC Launchpad 30 National Hackathon**  
 > **Primary Track:** `01 - AGENTIC AI` (Autonomous reasoning, parameterized tool contracts, human-in-the-loop safety)  
-> **Secondary Synergy:** `03 - EVERYDAY AUTOMATION` (Telemetry triage, runbook execution, blameless post-mortem synthesis)
+> **Secondary Synergy:** `03 - EVERYDAY AUTOMATION` (Telemetry triage, runbook execution, blameless post-mortem synthesis)  
+> **Author:** **Saad M.** ([@saad2134](https://github.com/saad2134))  
+> **Live Deployment:** [https://sanctigraph.vercel.app](https://sanctigraph.vercel.app)
 
 ---
 
@@ -42,7 +44,7 @@ flowchart LR
 * **Quarantined Log Ingestion:** Untrusted external logs are quarantined inside `<untrusted_system_log>` XML boundary tags with explicit system-level passive forensic instructions and a randomized honeytoken canary.
 
 ### 4. Cryptographic HMAC-SHA256 Bound Approval Gate
-* Approval tokens are cryptographically signed payloads: $\text{HMAC}(\text{incident\_id} \,\|\, \text{plan\_hash} \,\|\, \text{expires\_at})$. If the plan mutates, `plan_hash` changes, instantly invalidating all outstanding tokens.
+* Approval tokens are cryptographically signed payloads: `HMAC(incident_id || plan_hash || expires_at)`. If the plan mutates, `plan_hash` changes, instantly invalidating all outstanding tokens.
 * Single-use JTI nonce burning prevents replay attacks. Every DAG step records a UUIDv5 idempotency key.
 
 ### 5. Deterministic Fallback Triage Matrix
@@ -154,5 +156,6 @@ WCC-Hackathon/
 ---
 
 ## 👥 Hackathon Team & Acknowledgements
-Built for **WCC Launchpad 30** (30-Hour National Hackathon).  
-Engineered with precision for **Track 01 - Agentic AI**.
+* **Author & Lead Engineer:** **Saad M.** ([@saad2134](https://github.com/saad2134))
+* Built for **WCC Launchpad 30** (30-Hour National Hackathon).  
+* Engineered with precision for **Track 01 - Agentic AI**.
