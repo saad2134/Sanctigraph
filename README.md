@@ -1,4 +1,4 @@
-# Sanctigraph - Autonomous Production Incident Triage & Guarded Remediation Agent
+# 🤖 Sanctigraph - Autonomous Production Incident Triage & Guarded Remediation Agent
 
 > **WCC Launchpad 30 National Hackathon**  
 > **Primary Track:** `01 - AGENTIC AI` (Autonomous reasoning, parameterized tool contracts, human-in-the-loop safety)  
